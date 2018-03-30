@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--suppress SpringFacetInspection -->
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:rabbit="http://www.springframework.org/schema/rabbit"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+    	http://www.springframework.org/schema/beans/spring-beans-4.2.xsd
+    	http://www.springframework.org/schema/context
+        http://www.springframework.org/schema/context/spring-context-4.2.xsd
+        http://www.springframework.org/schema/util
+        http://www.springframework.org/schema/util/spring-util.xsd
+        http://www.springframework.org/schema/rabbit
+		http://www.springframework.org/schema/rabbit/spring-rabbit-2.0.xsd">
+	<!--<context:component-scan base-package="com.zmy.rabbitmq.rabbit" />
+	<context:annotation-config />-->
+	<context:property-placeholder location="rabbit.properties"/>
+
+    <rabbit:connection-factory
+            id="connectionFactory"
+            username="zh"
+            password="zh"
+            addresses="${rabbit.address}"
+            virtual-host="/"
+            executor="pool"
+            connection-name-strategy="connNameStrategy"
+            thread-factory="tf"
+            cache-mode="CONNECTION"
+            connection-timeout="30000"
+    />
+
+    <bean id="connNameStrategy" class="com.footprint.rabbit.ConnectionNameStrategy">
+        <property name="connectionFactory" ref="connectionFactory"/>
+        <property name="connName" value="RABBIT-CONSUMER"/>
+    </bean>
+
+    <bean id="tf" class="org.springframework.scheduling.concurrent.CustomizableThreadFactory">
+        <constructor-arg value="rabbitmq-consumer-" />
+    </bean>
+
+    <bean id="pool" class="java.util.concurrent.ThreadPoolExecutor">
+        <constructor-arg name="corePoolSize" value="10"/>
+        <constructor-arg name="maximumPoolSize" value="10"/>
+        <constructor-arg name="keepAliveTime" value="10"/>
+        <constructor-arg name="unit">
+            <util:constant static-field="java.util.concurrent.TimeUnit.SECONDS"/>
+        </constructor-arg>
+        <constructor-arg name="workQueue">
+            <bean class="java.util.concurrent.LinkedBlockingQueue"/>
+        </constructor-arg>
+        <constructor-arg name="handler">
+            <bean class="java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy"/>
+        </constructor-arg>
+    </bean>
+
+	<rabbit:admin id="admin" connection-factory="connectionFactory" auto-startup="false"/>
+
+	<rabbit:queue name="myQueue" declared-by="admin" />
+
+	<!--
+		SimpleMessageListenerContainer
+		concurency 通道数量
+		prefetch 消费并发数
+	-->
+	<bean id="messageListener" class="com.footprint.rabbit.consumer.DefaultMessageListener"/>
+    <!--
+        type：
+            为direct的时候会实例化 DirectMessageListenerContainer
+            为simple的时候会实例化 SimpleMessageListenerContainer
+        prefetch：
+            队列中没有unacked的数量上限，也就是说未消费消息的数量
+        concurency：
+            channel数量，也就是多少个socket连接
+        type：
+            direct时候，concurrency设置没有效果
+            simple
+    -->
+	<!--<rabbit:listener-container
+			connection-factory="connectionFactory"
+			concurency="4"
+			prefetch="250"
+            acknowledge="manual"
+            type="direct"
+	>
+		<rabbit:listener ref="messageListener" queue-names="myQueue" priority="10" admin="admin" />
+	</rabbit:listener-container>-->
+    <bean id="messageConsumer" class="org.springframework.amqp.rabbit.config.ListenerContainerFactoryBean">
+        <property name="type" value="simple"/>
+        <property name="rabbitAdmin" ref="admin"/>
+        <property name="acknowledgeMode" value="MANUAL"/>
+        <property name="connectionFactory" ref="connectionFactory"/>
+        <property name="messageListener" ref="messageListener"/>
+        <property name="prefetchCount" value="100"/>
+        <property name="concurrentConsumers" value="4"/>
+        <property name="maxConcurrentConsumers" value="8"/>
+        <property name="queueNames">
+            <array>
+                <value>myQueue</value>
+            </array>
+        </property>
+        <property name="consumerArguments">
+            <map>
+                <entry key="x-priority" value="10" value-type="java.lang.Integer"></entry>
+            </map>
+        </property>
+        <property name="errorHandler">
+            <bean class="org.springframework.amqp.rabbit.listener.ConditionalRejectingErrorHandler"/>
+        </property>
+        <property name="consumerTagStrategy">
+            <bean class="com.footprint.rabbit.consumer.DefaultConsumerTagStrategy"/>
+        </property>
+    </bean>
+
+
+    <bean id="consumerFailedListener" class="com.footprint.rabbit.consumer.listener.ConsumerFailedListener"/>
+</beans>

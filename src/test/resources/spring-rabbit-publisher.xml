@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--suppress SpringFacetInspection -->
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:context="http://www.springframework.org/schema/context"
+    xmlns:rabbit="http://www.springframework.org/schema/rabbit"
+    xmlns:util="http://www.springframework.org/schema/util"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans
+    	http://www.springframework.org/schema/beans/spring-beans-4.2.xsd
+    	http://www.springframework.org/schema/context
+        http://www.springframework.org/schema/context/spring-context-4.2.xsd
+        http://www.springframework.org/schema/util
+        http://www.springframework.org/schema/util/spring-util.xsd
+        http://www.springframework.org/schema/rabbit
+		http://www.springframework.org/schema/rabbit/spring-rabbit-2.0.xsd">
+	<context:component-scan base-package="com.zmy.rabbit" />
+	<context:annotation-config />
+	<context:property-placeholder location="rabbit.properties"/>
+	<!--<bean id="routerConnectionFactory"
+		  class="org.springframework.amqp.rabbit.connection.SimpleRoutingConnectionFactory">
+		<property name="targetConnectionFactories">
+			<map>
+				<entry key="one" value-ref="connectionFactory"/>
+				<entry key="two" value-ref="connectionFactory"/>
+			</map>
+		</property>
+	</bean>-->
+
+	<!--
+		virtual-host: 虚拟主机，主要是隔离权限使用，默认 ‘/’
+		channel-cache-size：可缓存通道数限制，默认25，如果超过25，则每次释放后会close掉
+		connection-limit/connection-timeout：
+			连接池限制，如果设置则，则如果connection-timeout
+			时间内未获取到连接会抛出异常channelCheckoutTimeLimit
+		cache-mode：缓存模式，默认为CHANNEL，也可以设置为CONNECTION
+		pool：设置共享线程池，如果不设置则每个connection固定5个线程
+			pool的大小，必须不小于连接数的大小
+        host：
+        port：
+            与address冲突，只能二选一
+		addresses：集群模式下使用 host1:5672,host2:5672
+		thread-factory：线程工厂
+
+		publisher-confirms：为true时消息安全发送机制，没有收到rabbit ack会在此发送？
+		publisher-returns：为true时消息如果没有对应的消费者则会retrun给生产者
+	-->
+	<rabbit:connection-factory
+			id="connectionFactory"
+            addresses="${rabbit.address}"
+			username="zh"
+			password="zh"
+			virtual-host="/"
+			cache-mode="CONNECTION"
+			channel-cache-size="25"
+			connection-cache-size="10"
+			connection-limit="10"
+			connection-timeout="1000"
+			executor="pool"
+			thread-factory="tf"
+			factory-timeout="10"
+			connection-name-strategy="connNameStrategy"
+			connection-factory="clientConnectionFactory"
+            publisher-confirms="true"
+            publisher-returns="true"
+	/>
+	<bean id="clientConnectionFactory"
+		  class="org.springframework.amqp.rabbit.connection.RabbitConnectionFactoryBean">
+	</bean>
+
+    <!--
+        非rabbit空间定义connectionFactory
+        rabbit:connection-factory  本质上还是定义了一个CachingConnectionFactory
+    -->
+    <!--<bean id="cachingConnectionFactory"
+          class="org.springframework.amqp.rabbit.connection.CachingConnectionFactory">
+    </bean>-->
+
+	<bean id="connNameStrategy" class="com.footprint.rabbit.ConnectionNameStrategy">
+		<property name="connectionFactory" ref="connectionFactory"/>
+		<property name="connName" value="RABBIT-CONN-ZH"/>
+	</bean>
+
+	<bean id="tf" class="org.springframework.scheduling.concurrent.CustomizableThreadFactory">
+		<constructor-arg value="rabbitmq-" />
+	</bean>
+
+	<bean id="pool" class="java.util.concurrent.ThreadPoolExecutor">
+		<constructor-arg name="corePoolSize" value="10"/>
+		<constructor-arg name="maximumPoolSize" value="10"/>
+		<constructor-arg name="keepAliveTime" value="10"/>
+		<constructor-arg name="unit">
+			<util:constant static-field="java.util.concurrent.TimeUnit.SECONDS"/>
+		</constructor-arg>
+		<constructor-arg name="workQueue">
+			<bean class="java.util.concurrent.LinkedBlockingQueue"/>
+		</constructor-arg>
+		<constructor-arg name="handler">
+			<bean class="java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy"/>
+		</constructor-arg>
+	</bean>
+
+	<rabbit:template id="amqpTemplate" connection-factory="connectionFactory"
+					 exchange="myExchange" routing-key="foo.bar"/>
+
+	<rabbit:admin id="rabbitAdmin" connection-factory="connectionFactory" />
+
+	<rabbit:queue name="myQueue" auto-declare="true" declared-by="rabbitAdmin"/>
+
+	<rabbit:topic-exchange name="myExchange" auto-declare="true" declared-by="rabbitAdmin">
+		<rabbit:bindings>
+			<rabbit:binding queue="myQueue" pattern="foo.*" />
+		</rabbit:bindings>
+	</rabbit:topic-exchange>
+
+</beans>
